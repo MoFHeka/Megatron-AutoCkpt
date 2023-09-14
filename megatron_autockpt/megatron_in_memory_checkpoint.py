@@ -148,6 +148,98 @@ class InMemCkptMegatron(InMemoryCheckpointManager):
       tracker_filename = get_checkpoint_tracker_filename(args.save)
       with open(tracker_filename, 'w') as f: # pylint: disable=unspecified-encoding
         f.write(str(iteration))
+  
+  def save_distributed_optimizer_parameter_state(self, optimizer):
+    """Save parameter state (i.e., parameter & optimizer tensors).
+
+    This method performs three steps:
+    - For each DP rank, copy param & optimizer shards to contiguous CPU
+      buffers. (e.g., one buffer each for main_param, exp_avg, and
+      exp_avg_sq).
+    - Gather contiguous buffers on DP rank 0 and concatenate to world
+      buffers.
+    - Save world buffers to disk (i.e., distrib_opt.pt).
+    """
+
+    # Data parallelism variables.
+    data_parallel_world_size = mpu.get_data_parallel_world_size()
+    data_parallel_rank = mpu.get_data_parallel_rank()
+    data_parallel_group_gloo = mpu.get_data_parallel_group_gloo()
+    data_parallel_global_ranks = list(mpu._DATA_PARALLEL_GLOBAL_RANKS)
+
+    # Collect param states.
+    state = {}
+    for model_idx, gbuf_range_maps in enumerate(optimizer.model_gbuf_ranges):
+
+      # Iterate grad buffers (by data type).
+      dtype_state = {}
+      assert len(gbuf_range_maps) == 1, "single dtype supported, for now."
+      for dtype, gbuf_range_map in gbuf_range_maps.items():
+
+        # Compute local DP contiguous shard's size.
+        model = optimizer.models[model_idx]
+        gbuf_world_numel = model._grad_buffers[dtype].numel_padded
+        gbuf_local_numel = int(gbuf_world_numel/data_parallel_world_size)
+        local_shards = {key:torch.empty((gbuf_local_numel,),
+                                      dtype=torch.float32,
+                                      device="cpu")
+                      for key in ("param", "exp_avg", "exp_avg_sq")}
+
+        # Build contiguous DP rank shards (for param + optim states).
+        for model_param, param_range_map in \
+          gbuf_range_map["param_map"].items():
+
+          # Main param & optimizer states.
+          group_index, group_order = \
+              optimizer.model_param_group_index_map[model_param]
+          main_param = optimizer.optimizer.param_groups \
+              [group_index]["params"][group_order]
+          optim_state = optimizer.optimizer.state[main_param]
+
+          tensors = {
+              "param" : main_param,
+              **optim_state,
+          }
+
+          # Copy states into contiguous shard.
+          gbuf_local_start = param_range_map["gbuf_local"].start
+          gbuf_local_end = param_range_map["gbuf_local"].end
+          for key in local_shards:
+            local_shards[key][gbuf_local_start:gbuf_local_end] \
+                .data.copy_(tensors[key].detach().cpu())
+
+        # Gather contiguous shards on DP rank 0.
+        world_tensors = {}
+        for key, send_tensor in local_shards.items():
+
+          # Gather tensor list.
+          if data_parallel_rank == 0:
+            recv_tensors = [torch.empty((gbuf_local_numel,),
+                                        dtype=torch.float32,
+                                        device="cpu")
+                            for _ in range(data_parallel_world_size)]
+          else:
+            recv_tensors = None
+
+          # Gather.
+          torch.distributed.gather(
+              send_tensor,
+              recv_tensors,
+              data_parallel_global_ranks[0],
+              data_parallel_group_gloo,
+          )
+
+          # Concatenate.
+          if data_parallel_rank == 0:
+            world_tensors[key] = torch.cat(recv_tensors)
+
+        # Collect world state.
+        dtype_state[dtype] = world_tensors
+      state[model_idx] = dtype_state
+    
+    return state
+
+
 
   def save_in_memory_checkpoint_for_megatron(self, iteration, model, optimizer, opt_param_scheduler):
     """Save checkpoint for megatron."""
@@ -180,13 +272,23 @@ class InMemCkptMegatron(InMemoryCheckpointManager):
     # Collect optimizer state. (Optimizer is saved separately from the model, due
     # to the conflicting data pattern when using the distributed optimizer.)
     optim_state_dict = {}
-    if not args.no_save_optim and (not torch.distributed.is_initialized()
-     or mpu.get_data_parallel_rank() == 0 or args.use_distributed_optimizer):
-      # Optimizer stuff.
-      if optimizer is not None:
-        optim_state_dict['optimizer'] = optimizer.state_dict()
-      if opt_param_scheduler is not None:
-        optim_state_dict['opt_param_scheduler'] = opt_param_scheduler.state_dict()
+    if (not torch.distributed.is_initialized() or mpu.get_data_parallel_rank() == 0
+          or args.use_distributed_optimizer):
+      if hasattr(optimizer,'save_parameter_state'):
+        optim_state_dict = self.save_distributed_optimizer_parameter_state(optimizer)
+        if not args.no_save_optim:
+          # Optimizer stuff.
+          if optimizer is not None:
+            model_state_dict['optimizer'] = optimizer.state_dict()
+          if opt_param_scheduler is not None:
+            model_state_dict['opt_param_scheduler'] = opt_param_scheduler.state_dict()
+      else:
+        if not args.no_save_optim:
+          # Optimizer stuff.
+          if optimizer is not None:
+            optim_state_dict['optimizer'] = optimizer.state_dict()
+          if opt_param_scheduler is not None:
+            optim_state_dict['opt_param_scheduler'] = opt_param_scheduler.state_dict()
 
     self.save_in_memory_checkpoint(iteration, model_state_dict=model_state_dict, optim_state_dict=optim_state_dict)
 
