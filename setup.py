@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='megatron_autockpt',  # Package name
-    version='1.0',  # Version
+    version='1.1',  # Version
     description=
     'A Megatron checkpoint auto-saving patch at the end of each iteration, inspired by Alibaba PAI EasyCkpt for Megatron.',  # Description
     author='Jia He',  # Name of the author or organization
