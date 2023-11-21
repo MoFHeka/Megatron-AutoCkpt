@@ -18,7 +18,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from .megatron_in_memory_checkpoint import (initialize_autockpt_for_megatron as initialize_autockpt,
-                                                             load_checkpoint_for_megatron as load_checkpoint,
-                                                             save_checkpoint_if_needed,
-                                                             save_checkpoint_done)
+from .megatron_in_memory_checkpoint import (initialize_autockpt_for_megatron as
+                                            initialize_autockpt,
+                                            load_checkpoint_for_megatron as
+                                            load_checkpoint,
+                                            save_checkpoint_if_needed,
+                                            save_checkpoint_done)

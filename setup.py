@@ -3,16 +3,17 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='megatron_autockpt', # Package name
-    version='1.0', # Version
-    description='A Megatron checkpoint auto-saving patch at the end of each iteration, inspired by Alibaba PAI EasyCkpt for Megatron.', # Description
-    author='Jia He', # Name of the author or organization
-    author_email='mofhejia@163.com', # Contact email address
-    url='https://github.com/MoFHeka/Megatron-AutoCkpt', # Project home page
-    packages=find_packages(), # Discover all packages automatically
-    include_package_data=True, # Contain all data files
-    zip_safe=False, # Make it install easily by git
-    install_requires=[ # List dependent third-party packages
+    name='megatron_autockpt',  # Package name
+    version='1.0',  # Version
+    description=
+    'A Megatron checkpoint auto-saving patch at the end of each iteration, inspired by Alibaba PAI EasyCkpt for Megatron.',  # Description
+    author='Jia He',  # Name of the author or organization
+    author_email='mofhejia@163.com',  # Contact email address
+    url='https://github.com/MoFHeka/Megatron-AutoCkpt',  # Project home page
+    packages=find_packages(),  # Discover all packages automatically
+    include_package_data=True,  # Contain all data files
+    zip_safe=False,  # Make it install easily by git
+    install_requires=[  # List dependent third-party packages
         'torch',
     ],
     classifiers=[
@@ -47,5 +48,5 @@ setup(
         'Environment :: Console',
         'Natural Language :: English',
         'Operating System :: OS Independent',
-    ], 
+    ],
 )
