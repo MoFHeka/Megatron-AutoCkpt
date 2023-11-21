@@ -200,8 +200,8 @@ class InMemCkptMegatron(InMemoryCheckpointManager):
     data_parallel_global_ranks = list(mpu._DATA_PARALLEL_GLOBAL_RANKS_WITH_CP)
 
     # Collect param states.
-    state = {"per_bucket_numel": self.per_bucket_numel}
-    for model_idx, gbuf_range_maps in enumerate(self.model_gbuf_ranges):
+    state = {"per_bucket_numel": optimizer.per_bucket_numel}
+    for model_idx, gbuf_range_maps in enumerate(optimizer.model_gbuf_ranges):
       # Iterate grad buffers (by data type).
       dtype_state = {}
       assert len(gbuf_range_maps) == 1, "single dtype supported, for now."
@@ -210,7 +210,7 @@ class InMemCkptMegatron(InMemoryCheckpointManager):
         for bucket_idx, gbuf_range_map in enumerate(
             gbuf_range_map_for_all_buckets):
           # Compute local DP contiguous shard's size.
-          model = self.models[model_idx]
+          model = optimizer.models[model_idx]
           gbuf_world_numel = (
               model.grad_buffers[dtype].buckets[bucket_idx].data.numel())
           assert gbuf_world_numel % data_parallel_world_size == 0
@@ -226,11 +226,11 @@ class InMemCkptMegatron(InMemoryCheckpointManager):
           for model_param, param_range_map in gbuf_range_map["param_map"].items(
           ):
             # Main param & optimizer states.
-            group_index, group_order = self.model_param_group_index_map[
+            group_index, group_order = optimizer.model_param_group_index_map[
                 model_param]
-            main_param = self.optimizer.param_groups[group_index]["params"][
+            main_param = optimizer.optimizer.param_groups[group_index]["params"][
                 group_order]
-            optim_state = self.optimizer.state[main_param]
+            optim_state = optimizer.optimizer.state[main_param]
 
             tensors = {
                 "param": main_param,
